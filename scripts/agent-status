@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  agent-status STATUS --agent AGENT_ID [--message TEXT] [--task TEXT]
+
+Statuses:
+  starting running waiting completed failed stopped paused stalled idle busy needs-human delete
+
+Examples:
+  agent-status waiting --agent prediction-agent-01 --message "Need target variable"
+  agent-status running --agent prediction-agent-01
+  agent-status idle --agent prediction-agent-01
+  agent-status busy --agent prediction-agent-01
+  agent-status needs-human --agent prediction-agent-01 --message "Need approval"
+  agent-status delete --agent prediction-agent-01
+EOF
+}
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 2
+fi
+
+status="$1"
+shift
+
+case "$status" in
+  starting|running|waiting|completed|failed|stopped|paused|stalled|idle|busy|needs-human|needs_human|delete)
+    ;;
+  *)
+    echo "agent-status: unknown status: $status" >&2
+    usage
+    exit 2
+    ;;
+esac
+
+if [[ "$status" == "delete" ]]; then
+  "$SCRIPT_DIR/python.sh" "$SCRIPT_DIR/agent_monitor.py" delete "$@"
+  exit 0
+fi
+
+needs_human="false"
+activity=""
+if [[ "$status" == "idle" ]]; then
+  status="running"
+  activity="IDLE"
+elif [[ "$status" == "busy" ]]; then
+  status="running"
+  activity="BUSY"
+elif [[ "$status" == "needs-human" || "$status" == "needs_human" ]]; then
+  status="running"
+  activity="NEEDS_HUMAN"
+  needs_human="true"
+elif [[ "$status" == "waiting" ]]; then
+  needs_human="true"
+  activity="NEEDS_HUMAN"
+fi
+
+status_upper="$(printf '%s' "$status" | tr '[:lower:]' '[:upper:]')"
+activity_args=()
+if [[ -n "$activity" ]]; then
+  activity_args+=("--activity" "$activity")
+fi
+tmux_args=()
+if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
+  tmux_target="${TMUX_PANE:-}"
+  if [[ -n "$tmux_target" ]]; then
+    tmux_args+=("--window" "$(tmux display-message -p -t "$tmux_target" '#W' 2>/dev/null || true)")
+    tmux_args+=("--window-id" "$(tmux display-message -p -t "$tmux_target" '#{window_id}' 2>/dev/null || true)")
+    tmux_args+=("--session" "$(tmux display-message -p -t "$tmux_target" '#S' 2>/dev/null || true)")
+    tmux_args+=("--pane" "$(tmux display-message -p -t "$tmux_target" '#{pane_id}' 2>/dev/null || true)")
+  else
+    tmux_args+=("--window" "$(tmux display-message -p '#W' 2>/dev/null || true)")
+    tmux_args+=("--window-id" "$(tmux display-message -p '#{window_id}' 2>/dev/null || true)")
+    tmux_args+=("--session" "$(tmux display-message -p '#S' 2>/dev/null || true)")
+    tmux_args+=("--pane" "$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)")
+  fi
+fi
+
+"$SCRIPT_DIR/python.sh" "$SCRIPT_DIR/agent_monitor.py" update \
+  --status "$status_upper" \
+  --needs-human "$needs_human" \
+  "${activity_args[@]}" \
+  "${tmux_args[@]}" \
+  "$@"

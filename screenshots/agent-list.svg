@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="260" viewBox="0 0 920 260">
+  <rect width="920" height="260" fill="#101215"/>
+  <rect x="24" y="24" width="872" height="212" rx="8" fill="#171a1f" stroke="#30343b"/>
+  <text x="44" y="58" fill="#d7dce2" font-family="Menlo, Consolas, monospace" font-size="18">$ scripts/python.sh scripts/agent_monitor.py list</text>
+  <text x="44" y="96" fill="#8d96a0" font-family="Menlo, Consolas, monospace" font-size="15">Agent                  Status   Activity     Display      Window  Pane</text>
+  <text x="44" y="122" fill="#8d96a0" font-family="Menlo, Consolas, monospace" font-size="15">---------------------  -------  -----------  -----------  ------  ----</text>
+  <text x="44" y="150" fill="#d7dce2" font-family="Menlo, Consolas, monospace" font-size="15">codex-20260601-101705  RUNNING  IDLE         IDLE         auto    %8</text>
+  <text x="44" y="178" fill="#d7dce2" font-family="Menlo, Consolas, monospace" font-size="15">codex-20260601-101912  RUNNING  BUSY         BUSY         auto    %9</text>
+  <text x="44" y="206" fill="#d7dce2" font-family="Menlo, Consolas, monospace" font-size="15">codex-20260601-102330  RUNNING  NEEDS_HUMAN  NEEDS_HUMAN  tmux    %10</text>
+</svg>

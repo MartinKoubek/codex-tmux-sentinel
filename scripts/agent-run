@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: agent-run AGENT_ID COMMAND [ARGS...]
+
+Examples:
+  agent-run prediction-agent-01 codex
+  agent-run jira-analyzer claude --dangerously-skip-permissions
+EOF
+}
+
+if [[ $# -lt 2 ]]; then
+  usage
+  exit 2
+fi
+
+AGENT_ID="$1"
+shift
+
+tmux_window=""
+tmux_window_id=""
+tmux_session=""
+tmux_pane=""
+if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
+  tmux_target="${TMUX_PANE:-}"
+  if [[ -n "$tmux_target" ]]; then
+    tmux_window="$(tmux display-message -p -t "$tmux_target" '#W' 2>/dev/null || true)"
+    tmux_window_id="$(tmux display-message -p -t "$tmux_target" '#{window_id}' 2>/dev/null || true)"
+    tmux_session="$(tmux display-message -p -t "$tmux_target" '#S' 2>/dev/null || true)"
+    tmux_pane="$(tmux display-message -p -t "$tmux_target" '#{pane_id}' 2>/dev/null || true)"
+  else
+    tmux_window="$(tmux display-message -p '#W' 2>/dev/null || true)"
+    tmux_window_id="$(tmux display-message -p '#{window_id}' 2>/dev/null || true)"
+    tmux_session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+    tmux_pane="$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)"
+  fi
+fi
+
+export AGENT_ID
+"$SCRIPT_DIR/python.sh" "$SCRIPT_DIR/agent_monitor.py" register \
+  --agent "$AGENT_ID" \
+  --status STARTING \
+  --task "${AGENT_TASK:-$*}" \
+  --window "$tmux_window" \
+  --window-id "$tmux_window_id" \
+  --session "$tmux_session" \
+  --pane "$tmux_pane"
+
+"$SCRIPT_DIR/python.sh" "$SCRIPT_DIR/agent_monitor.py" update \
+  --agent "$AGENT_ID" \
+  --status RUNNING \
+  --needs-human false
+
+set +e
+"$@"
+rc=$?
+set -e
+
+if [[ $rc -eq 0 ]]; then
+  "$SCRIPT_DIR/python.sh" "$SCRIPT_DIR/agent_monitor.py" update \
+    --agent "$AGENT_ID" \
+    --status COMPLETED \
+    --needs-human false \
+    --message "Agent completed"
+  "$SCRIPT_DIR/python.sh" "$SCRIPT_DIR/agent_monitor.py" delete \
+    --agent "$AGENT_ID"
+elif [[ $rc -eq 130 || $rc -eq 143 ]]; then
+  "$SCRIPT_DIR/python.sh" "$SCRIPT_DIR/agent_monitor.py" update \
+    --agent "$AGENT_ID" \
+    --status STOPPED \
+    --needs-human false \
+    --message "Agent stopped"
+  "$SCRIPT_DIR/python.sh" "$SCRIPT_DIR/agent_monitor.py" delete \
+    --agent "$AGENT_ID"
+else
+  "$SCRIPT_DIR/python.sh" "$SCRIPT_DIR/agent_monitor.py" update \
+    --agent "$AGENT_ID" \
+    --status FAILED \
+    --needs-human false \
+    --message "Agent failed with exit code $rc"
+fi
+
+exit "$rc"

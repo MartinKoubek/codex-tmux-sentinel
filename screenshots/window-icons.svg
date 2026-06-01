@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="160" viewBox="0 0 920 160">
+  <rect width="920" height="160" fill="#101215"/>
+  <rect x="24" y="28" width="872" height="104" rx="8" fill="#171a1f" stroke="#30343b"/>
+  <rect x="24" y="92" width="872" height="40" fill="#242932"/>
+  <text x="44" y="66" fill="#d7dce2" font-family="Menlo, Consolas, monospace" font-size="20">tmux windows with Codex pane status</text>
+  <text x="44" y="119" fill="#d7dce2" font-family="Menlo, Consolas, monospace" font-size="18">0:evpo</text>
+  <text x="140" y="119" fill="#d7dce2" font-family="Menlo, Consolas, monospace" font-size="18">1:tmux</text>
+  <text x="238" y="119" fill="#d7dce2" font-family="Menlo, Consolas, monospace" font-size="18">2:ocat</text>
+  <text x="334" y="119" fill="#d7dce2" font-family="Menlo, Consolas, monospace" font-size="18">3:auto</text>
+  <circle cx="418" cy="113" r="8" fill="#1f7a32"/>
+  <circle cx="442" cy="113" r="8" fill="#d6a700"/>
+  <circle cx="466" cy="113" r="8" fill="#d64545"/>
+  <text x="510" y="119" fill="#8d96a0" font-family="Menlo, Consolas, monospace" font-size="18">4:docs</text>
+  <text x="735" y="119" fill="#d7dce2" font-family="Menlo, Consolas, monospace" font-size="18">14:32 01-Jun-26</text>
+</svg>
