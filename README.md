@@ -127,6 +127,31 @@ Clean completed/stopped agents:
 scripts/python.sh scripts/agent_monitor.py prune
 ```
 
+## Troubleshooting
+
+If Codex prints hook failures like this:
+
+```text
+SessionStart hook (failed)
+error: hook exited with code 127
+```
+
+you are running a Codex process that loaded an old config from a previous version of this plugin. The current plugin does not use Codex hooks.
+
+Fix:
+
+1. Exit the affected Codex session.
+2. Run `./install.sh` once to remove any old managed hook block from `~/.codex/config.toml`.
+3. Start Codex again with `c`.
+
+You can confirm the active config is clean with:
+
+```bash
+rg 'codex-hook|agent-monitor codex hooks' ~/.codex/config.toml
+```
+
+That command should print nothing.
+
 ## tmux Options
 
 ```tmux

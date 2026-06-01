@@ -85,6 +85,41 @@ PY
   fi
 }
 
+cleanup_old_codex_hooks() {
+  local config="$HOME/.codex/config.toml"
+  [[ -f "$config" ]] || return 0
+
+  "${PYTHON_CMD[@]}" - "$config" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+lines = text.splitlines()
+out = []
+skipping = False
+changed = False
+for line in lines:
+    stripped = line.strip()
+    if stripped == "# agent-monitor codex hooks begin":
+        skipping = True
+        changed = True
+        continue
+    if stripped == "# agent-monitor codex hooks end":
+        skipping = False
+        changed = True
+        continue
+    if not skipping:
+        out.append(line)
+if changed:
+    backup = path.with_suffix(path.suffix + ".codex-tmux-sentinel.bak")
+    backup.write_text(text, encoding="utf-8")
+    path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+    print(f"Removed old agent-monitor Codex hooks from {path}")
+    print(f"Backup written to {backup}")
+PY
+}
+
 if command -v python3.11 >/dev/null 2>&1; then
   PYTHON_CMD=(python3.11)
 elif command -v pyenv >/dev/null 2>&1; then
@@ -93,6 +128,8 @@ else
   echo "install.sh: python3.11 or pyenv is required" >&2
   exit 1
 fi
+
+cleanup_old_codex_hooks
 
 if [[ "$install_zsh" -eq 1 ]]; then
   zsh_begin="# codex-tmux-sentinel begin"
