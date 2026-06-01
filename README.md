@@ -6,6 +6,10 @@ It tracks Codex sessions started through `agent-run`/`c`, stores live state in o
 
 ## Screenshots
 
+Demo video:
+
+https://youtu.be/CmjLbY9gO0M
+
 Per-window Codex icons:
 
 ![tmux window icons showing Codex status dots](screenshots/window-icons.svg)
