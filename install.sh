@@ -184,15 +184,34 @@ fi
 echo
 echo "Done."
 echo
-echo "Next steps:"
+echo "Completed:"
+if [[ "$install_zsh" -eq 1 ]]; then
+  echo "  updated $ZSHRC"
+fi
+if [[ "$install_tmux" -eq 1 ]]; then
+  echo "  updated $TMUX_CONF"
+fi
+if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
+  echo "  reloaded plugin in the current tmux session"
+fi
+echo
+echo "Required next step for this shell:"
 if [[ "$install_zsh" -eq 1 ]]; then
   echo "  source \"$ZSHRC\""
-  echo "  c"
 else
   echo "  ensure $PLUGIN_DIR/bin is on PATH"
 fi
+echo
+echo "Use:"
+echo "  c"
+echo "  # c is the Codex shortcut installed by this plugin"
+echo "  # before: codex"
+echo "  # now:    c"
 if [[ "$install_tmux" -eq 1 ]]; then
+  echo
+  echo "Optional:"
   echo "  tmux source-file \"$TMUX_CONF\""
+  echo "  # use this to apply the persisted tmux config immediately in other sessions"
 fi
 echo
 echo "Verify:"

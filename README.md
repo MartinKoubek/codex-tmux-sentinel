@@ -33,7 +33,28 @@ Icon meanings:
 
 ## Install
 
-Smooth install:
+Copy-paste install:
+
+```bash
+git clone https://github.com/MartinKoubek/codex-tmux-sentinel ~/.tmux/plugins/codex-tmux-sentinel
+~/.tmux/plugins/codex-tmux-sentinel/install.sh
+```
+
+Then reload your shell and start Codex with `c`:
+
+```bash
+source ~/.zshrc
+c
+```
+
+`c` is the Codex shortcut installed by this plugin:
+
+```text
+before: codex
+now:    c
+```
+
+If you already cloned this repository, run the installer from the repo:
 
 ```bash
 ./install.sh
@@ -53,7 +74,7 @@ set -g @agent_monitor_window_icons on
 set -g @agent_monitor_auto_window_names on
 set -g @agent_monitor_window_name_len 4
 set -g @agent_monitor_refresh_interval 1
-run-shell "/Users/martinkoubek/martinkoubek/tmux_plugin/agent-monitor.tmux"
+run-shell "$HOME/.tmux/plugins/codex-tmux-sentinel/agent-monitor.tmux"
 # codex-tmux-sentinel end
 ```
 
@@ -71,23 +92,41 @@ Installer options:
 ZSHRC=/path/to/.zshrc TMUX_CONF=/path/to/.tmux.conf ./install.sh
 ```
 
-With TPM:
+### With TPM
+
+Add the plugin to `~/.tmux.conf`:
 
 ```tmux
-set -g @plugin '/Users/martinkoubek/martinkoubek/tmux_plugin'
+set -g @plugin 'MartinKoubek/codex-tmux-sentinel'
 run '~/.tmux/plugins/tpm/tpm'
 ```
 
-Manual:
+Then press `prefix + I` inside tmux to install it.
+
+TPM loads the tmux plugin, but it does not install the `c` shell shortcut. Add the command shims to your shell:
+
+```bash
+export PATH="$HOME/.tmux/plugins/codex-tmux-sentinel/bin:$PATH"
+```
+
+Or run the installer after TPM installs the plugin:
+
+```bash
+~/.tmux/plugins/codex-tmux-sentinel/install.sh
+```
+
+### Manual
+
+Load the plugin from a local checkout:
 
 ```tmux
-run-shell '/Users/martinkoubek/martinkoubek/tmux_plugin/agent-monitor.tmux'
+run-shell '~/.tmux/plugins/codex-tmux-sentinel/agent-monitor.tmux'
 ```
 
 Add the command shims to your shell:
 
 ```bash
-export PATH="/Users/martinkoubek/martinkoubek/tmux_plugin/bin:$PATH"
+export PATH="$HOME/.tmux/plugins/codex-tmux-sentinel/bin:$PATH"
 ```
 
 ## Usage
