@@ -249,6 +249,35 @@ def capture_pane_text(pane: str) -> str:
     return result.stdout if result.returncode == 0 else ""
 
 
+def pane_current_path(pane: str) -> Path | None:
+    if not pane or not shutil.which("tmux"):
+        return None
+    result = subprocess.run(
+        ["tmux", "display-message", "-p", "-t", pane, "#{pane_current_path}"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    current_path = result.stdout.strip() if result.returncode == 0 else ""
+    return Path(current_path).expanduser() if current_path else None
+
+
+def idea_file_count_for_pane(pane: str) -> int:
+    current_path = pane_current_path(pane)
+    if current_path is None:
+        return 0
+
+    idea_path = current_path / "idea"
+    if not idea_path.is_dir():
+        return 0
+
+    try:
+        return sum(1 for path in idea_path.rglob("*") if path.is_file())
+    except OSError:
+        return 0
+
+
 def last_nonempty_lines(text: str, count: int = 14) -> list[str]:
     return [line.rstrip() for line in text.splitlines() if line.strip()][-count:]
 
@@ -372,9 +401,10 @@ def load_agents() -> list[dict[str, Any]]:
     return agents
 
 
-def status_icon(status: str) -> str:
+def status_icon(status: str, count: int | None = None) -> str:
     color = STATUS_COLORS.get(status.upper(), STATUS_COLORS["NONE"])
-    return f"#[fg={color}]⬤#[default]"
+    suffix = "" if count is None else f" {count}"
+    return f"#[fg={color}]⬤#[default]{suffix}"
 
 
 def window_status(args: argparse.Namespace) -> None:
@@ -385,7 +415,8 @@ def window_status(args: argparse.Namespace) -> None:
         if (args.window_id and agent_window_id == args.window_id) or (
             not agent_window_id and args.window and agent_window == args.window
         ):
-            icons.append(status_icon(str(agent.get("display_status", "NONE"))))
+            count = idea_file_count_for_pane(str(agent.get("pane", "")))
+            icons.append(status_icon(str(agent.get("display_status", "NONE")), count))
     print(" ".join(icons))
 
 

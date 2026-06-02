@@ -20,13 +20,15 @@ State inspection:
 
 ## Display
 
-Each Codex pane in a tmux window gets one icon after the window name:
+Each Codex pane in a tmux window gets one icon after the window name, followed by the number of files under that pane's `idea` directory:
 
 ```text
-auto ⬤ ⬤
+auto ⬤ 12 ⬤ 0
 ```
 
 Windows without Codex show no icon.
+
+The number after each icon is the count of regular files under the pane's current `idea/` directory. This lets a project surface captured idea notes directly in the tmux window status.
 
 Icon meanings:
 
