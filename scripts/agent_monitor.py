@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +18,16 @@ from typing import Any, Iterator
 ACTIVITIES = {"IDLE", "BUSY", "NEEDS_HUMAN"}
 ACTIVE_STATUSES = {"STARTING", "RUNNING", "PAUSED"}
 ALL_STATUSES = ACTIVE_STATUSES | {"COMPLETED", "FAILED", "STOPPED", "WAITING", "STALLED"}
+CODEX_HOOK_EVENTS = {
+    "Notification",
+    "PermissionRequest",
+    "PostToolUse",
+    "PreToolUse",
+    "SessionEnd",
+    "SessionStart",
+    "Stop",
+    "UserPromptSubmit",
+}
 
 STATUS_PRIORITY = {
     "FAILED": 100,
@@ -236,6 +247,66 @@ def prune_agents(args: argparse.Namespace) -> None:
                 agents.pop(agent_id, None)
 
 
+def codex_hook_activity(event: str) -> tuple[str, str, bool] | None:
+    if event in {"PermissionRequest", "Notification"}:
+        return ("RUNNING", "NEEDS_HUMAN", True)
+    if event in {"PreToolUse", "PostToolUse", "UserPromptSubmit"}:
+        return ("RUNNING", "BUSY", False)
+    if event in {"SessionStart", "Stop"}:
+        return ("RUNNING", "IDLE", False)
+    if event == "SessionEnd":
+        return ("STOPPED", "IDLE", False)
+    return None
+
+
+def codex_hook(args: argparse.Namespace) -> None:
+    agent_id = args.agent or os.environ.get("AGENT_ID") or os.environ.get("AGENT_MONITOR_AGENT_ID")
+    if not agent_id:
+        return
+    try:
+        validate_agent_id(agent_id)
+    except SystemExit:
+        return
+
+    event = args.event.strip()
+    if event not in CODEX_HOOK_EVENTS:
+        return
+
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except json.JSONDecodeError:
+        payload = {}
+
+    next_state = codex_hook_activity(event)
+    if next_state is None:
+        return
+
+    status, activity, needs_human = next_state
+    timestamp = iso_now()
+    message = str(payload.get("message") or payload.get("title") or event) if isinstance(payload, dict) else event
+
+    with locked_agent_state() as state:
+        agents = state.setdefault("agents", {})
+        existing = agents.get(agent_id, {})
+        if not isinstance(existing, dict):
+            existing = {}
+
+        existing.update(
+            {
+                "agent_id": agent_id,
+                "status": status,
+                "activity": activity,
+                "last_update": timestamp,
+                "needs_human": needs_human,
+                "last_hook_event": event,
+                "message": message,
+            }
+        )
+        existing.setdefault("task", "codex")
+        existing.setdefault("started_at", timestamp)
+        agents[agent_id] = existing
+
+
 def capture_pane_text(pane: str) -> str:
     if not pane or not shutil.which("tmux"):
         return ""
@@ -316,7 +387,9 @@ def infer_codex_activity(agent: dict[str, Any]) -> str | None:
     pane_text = capture_pane_text(str(agent.get("pane", "")))
     if not pane_text:
         return normalize_activity(str(agent.get("activity"))) if agent.get("activity") else None
-    if pane_is_changing(agent, pane_text):
+    pane_changing = pane_is_changing(agent, pane_text)
+    agent["_pane_changing"] = pane_changing
+    if pane_changing:
         return "BUSY"
 
     lines = last_nonempty_lines(pane_text)
@@ -364,12 +437,25 @@ def infer_codex_activity(agent: dict[str, Any]) -> str | None:
 
 
 def display_status(agent: dict[str, Any]) -> str:
+    raw_status = str(agent.get("status") or "STOPPED").upper()
+    if raw_status in {"FAILED", "STALLED"}:
+        return raw_status
+
+    inferred = infer_codex_activity(agent)
+    if inferred == "BUSY":
+        last_update = parse_time(agent.get("last_update"))
+        stalled = (
+            raw_status in ACTIVE_STATUSES
+            and not agent.get("_pane_changing", False)
+            and last_update is not None
+            and (now_utc() - last_update).total_seconds() > stalled_timeout()
+        )
+        return "STALLED" if stalled else "BUSY"
+    if inferred:
+        return inferred
+
     status = effective_status(agent)
-    if status == "FAILED":
-        return "FAILED"
-    if status == "STALLED":
-        return "STALLED"
-    return infer_codex_activity(agent) or default_activity(status, bool(agent.get("needs_human", False)))
+    return default_activity(status, bool(agent.get("needs_human", False)))
 
 
 def load_agents() -> list[dict[str, Any]]:
@@ -386,16 +472,17 @@ def load_agents() -> list[dict[str, Any]]:
 
             data = dict(stored)
             data.setdefault("agent_id", agent_id)
-            data["effective_status"] = effective_status(data)
             data["display_status"] = display_status(data)
             inferred_activity = normalize_activity(data["display_status"]) if data["display_status"] in ACTIVITIES else None
 
-            if inferred_activity and data.get("activity") != inferred_activity:
+            if inferred_activity and (data.get("activity") != inferred_activity or data.get("_pane_changing", False)):
                 data["activity"] = inferred_activity
                 data["needs_human"] = inferred_activity == "NEEDS_HUMAN"
                 data["last_update"] = iso_now()
                 stored.update({"activity": data["activity"], "needs_human": data["needs_human"], "last_update": data["last_update"]})
 
+            data["effective_status"] = effective_status(data)
+            data.pop("_pane_changing", None)
             data.setdefault("activity", default_activity(data["effective_status"], bool(data.get("needs_human", False))))
             agents.append(data)
     return agents
@@ -497,6 +584,11 @@ def build_parser() -> argparse.ArgumentParser:
     prune_parser = sub.add_parser("prune")
     prune_parser.add_argument("--failed", action="store_true", help="also remove failed agents")
     prune_parser.set_defaults(func=prune_agents)
+
+    codex_hook_parser = sub.add_parser("codex-hook")
+    codex_hook_parser.add_argument("--event", required=True)
+    codex_hook_parser.add_argument("--agent", default="")
+    codex_hook_parser.set_defaults(func=codex_hook)
 
     window_status_parser = sub.add_parser("window-status")
     window_status_parser.add_argument("--window-id", default="")

@@ -1,8 +1,8 @@
 # codex-tmux-sentinel
 
-A small tmux plugin for showing Codex activity next to each tmux window name.
+A tmux plugin for showing Codex activity next to each tmux window name.
 
-It tracks Codex sessions started through `agent-run`/`c`, stores live state in one locked JSON file, infers activity from the tmux pane, and renders one colored icon per Codex pane in each window.
+It tracks Codex sessions started through `agent-run`/`c`, stores live state in one locked JSON file, updates activity from native Codex hooks, and keeps tmux pane inference as a fallback. Each Codex pane gets one colored icon in the tmux window list.
 
 ## Screenshots
 
@@ -70,6 +70,7 @@ The installer updates:
 
 - `~/.zshrc`: adds plugin `bin` to `PATH` and defines `c`
 - `~/.tmux.conf`: permanently loads `agent-monitor.tmux` on every tmux start/reload and sets recommended options
+- `~/.codex/hooks.json`: installs Codex native hooks for activity updates
 - current tmux session: reloads the plugin when run from inside tmux
 
 The tmux install is persistent. `./install.sh` writes a managed block like this to `~/.tmux.conf`:
@@ -95,8 +96,11 @@ Installer options:
 ```bash
 ./install.sh --no-zsh
 ./install.sh --no-tmux
+./install.sh --no-codex-hooks
 ZSHRC=/path/to/.zshrc TMUX_CONF=/path/to/.tmux.conf ./install.sh
 ```
+
+The installer adds managed Codex native hook commands to `~/.codex/hooks.json` by default. Hook events update the same monitor state as `agent-run`, and pane-based inference remains as a fallback. Use `--no-codex-hooks` only if you want status based on pane inference alone.
 
 ### With TPM
 
@@ -150,6 +154,8 @@ c
 c my-codex
 ```
 
+Codex may ask you to review and trust the hook commands the first time it sees them. Start Codex with `c` so the hook events share the same `AGENT_ID` as the tmux monitor entry.
+
 Manual state changes:
 
 ```bash
@@ -181,7 +187,7 @@ SessionStart hook (failed)
 error: hook exited with code 127
 ```
 
-you are running a Codex process that loaded an old config from a previous version of this plugin. The current plugin does not use Codex hooks.
+you are running a Codex process that loaded an old hook config from a previous version of this plugin.
 
 Fix:
 
@@ -196,6 +202,14 @@ rg 'codex-hook|agent-monitor codex hooks' ~/.codex/config.toml
 ```
 
 That command should print nothing.
+
+Codex native hooks are installed by default. To skip them during install, run:
+
+```bash
+./install.sh --no-codex-hooks
+```
+
+If hooks are not firing, start a new Codex session with `c` after reinstalling and accept the hook trust prompt if Codex shows one.
 
 ## tmux Options
 
@@ -221,7 +235,8 @@ Example:
 - `agent-monitor.tmux`: tmux plugin entrypoint
 - `scripts/agent-run`: registers and runs an agent command
 - `scripts/agent-status`: manual state updates
-- `scripts/agent_monitor.py`: locked state file and activity inference
+- `scripts/codex-hook`: Codex native hook entrypoint
+- `scripts/agent_monitor.py`: locked state file, hook updates, activity inference, and icon rendering
 - `scripts/window-status.sh`: renders per-window icons
 - `scripts/window-name.sh`: auto-renames windows from pane paths
 - `bin/agent-run`, `bin/agent-status`: PATH-friendly shims

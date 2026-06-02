@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ $# -ne 1 ]]; then
+  exit 0
+fi
+
+"$SCRIPT_DIR/python.sh" "$SCRIPT_DIR/agent_monitor.py" codex-hook --event "$1"

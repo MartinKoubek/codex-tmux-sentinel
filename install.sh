@@ -8,11 +8,14 @@ PYTHON_CMD=()
 
 usage() {
   cat <<EOF
-Usage: ./install.sh [--no-zsh] [--no-tmux]
+Usage: ./install.sh [--no-zsh] [--no-tmux] [--no-codex-hooks]
 
 Installs codex-tmux-sentinel by updating:
   $ZSHRC
   $TMUX_CONF
+
+Optional:
+  --no-codex-hooks  Skip Codex native hooks in ~/.codex/hooks.json
 
 Environment overrides:
   ZSHRC=/path/to/zshrc TMUX_CONF=/path/to/tmux.conf ./install.sh
@@ -21,6 +24,7 @@ EOF
 
 install_zsh=1
 install_tmux=1
+install_codex_hooks=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-zsh)
@@ -28,6 +32,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-tmux)
       install_tmux=0
+      ;;
+    --no-codex-hooks)
+      install_codex_hooks=0
       ;;
     -h|--help)
       usage
@@ -120,6 +127,75 @@ if changed:
 PY
 }
 
+install_codex_hooks_config() {
+  local config_dir="$HOME/.codex"
+  local hooks_config="$config_dir/hooks.json"
+  local hook_script="$PLUGIN_DIR/scripts/codex-hook"
+
+  mkdir -p "$config_dir"
+  "${PYTHON_CMD[@]}" - "$hooks_config" "$hook_script" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+path = Path(sys.argv[1])
+hook_script = sys.argv[2]
+events = [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "PermissionRequest",
+    "Stop",
+]
+
+if path.exists():
+    text = path.read_text(encoding="utf-8")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        backup = path.with_suffix(path.suffix + ".codex-tmux-sentinel.bak")
+        backup.write_text(text, encoding="utf-8")
+        data = {}
+else:
+    data = {}
+
+if not isinstance(data, dict):
+    data = {}
+
+
+def as_command_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+changed = False
+for event in events:
+    command = f"{hook_script} {event}"
+    existing = [
+        item
+        for item in as_command_list(data.get(event))
+        if not (isinstance(item, str) and "scripts/codex-hook " in item)
+    ]
+    if command not in existing:
+        existing.append(command)
+        changed = True
+    if data.get(event) != existing:
+        data[event] = existing
+        changed = True
+
+if changed or not path.exists():
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"Updated {path}")
+PY
+}
+
 if command -v python3.11 >/dev/null 2>&1; then
   PYTHON_CMD=(python3.11)
 elif command -v pyenv >/dev/null 2>&1; then
@@ -175,6 +251,10 @@ EOF
   echo "Updated $TMUX_CONF"
 fi
 
+if [[ "$install_codex_hooks" -eq 1 ]]; then
+  install_codex_hooks_config
+fi
+
 if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
   tmux run-shell "$PLUGIN_DIR/agent-monitor.tmux" || true
   tmux refresh-client -S || true
@@ -190,6 +270,9 @@ if [[ "$install_zsh" -eq 1 ]]; then
 fi
 if [[ "$install_tmux" -eq 1 ]]; then
   echo "  updated $TMUX_CONF"
+fi
+if [[ "$install_codex_hooks" -eq 1 ]]; then
+  echo "  updated $HOME/.codex/hooks.json"
 fi
 if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
   echo "  reloaded plugin in the current tmux session"
