@@ -210,24 +210,36 @@ cleanup_old_codex_hooks
 if [[ "$install_zsh" -eq 1 ]]; then
   zsh_begin="# codex-tmux-sentinel begin"
   zsh_end="# codex-tmux-sentinel end"
-  zsh_block="$(cat <<EOF
-$zsh_begin
-export PATH="$PLUGIN_DIR/bin:\$PATH"
+  zsh_block='
+__ZSH_BEGIN__
+export PATH="__PLUGIN_DIR__/bin:$PATH"
 
 c() {
-  local agent_id
-  if [[ \$# -gt 0 && "\$1" != -* ]]; then
-    agent_id="\$1"
-    shift
-  else
-    agent_id="codex-\$(date +%Y%m%d-%H%M%S)"
+  local agent_id="codex-$(date +%Y%m%d-%H%M%S)"
+  if [[ $# -gt 0 ]]; then
+    case "$1" in
+      --agent)
+        if [[ $# -lt 2 ]]; then
+          echo "c: --agent requires a value" >&2
+          return 2
+        fi
+        agent_id="$2"
+        shift 2
+        ;;
+      --agent=*)
+        agent_id="${1#--agent=}"
+        shift
+        ;;
+    esac
   fi
 
-  AGENT_ID="\$agent_id" AGENT_MONITOR_AGENT_ID="\$agent_id" agent-run "\$agent_id" codex "\$@"
+  AGENT_ID="$agent_id" AGENT_MONITOR_AGENT_ID="$agent_id" agent-run "$agent_id" codex "$@"
 }
-$zsh_end
-EOF
-)"
+__ZSH_END__
+'
+  zsh_block="${zsh_block//__ZSH_BEGIN__/$zsh_begin}"
+  zsh_block="${zsh_block//__ZSH_END__/$zsh_end}"
+  zsh_block="${zsh_block//__PLUGIN_DIR__/$PLUGIN_DIR}"
   append_block "$ZSHRC" "# codex-tmux-monitor begin" "# codex-tmux-monitor end" ""
   append_block "$ZSHRC" "$zsh_begin" "$zsh_end" "$zsh_block"
   echo "Updated $ZSHRC"

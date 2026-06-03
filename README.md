@@ -151,7 +151,10 @@ The local `~/.zshrc` also defines `c`, so this works:
 
 ```bash
 c
-c my-codex
+c resume
+c help
+c --agent my-codex
+c --agent my-codex resume
 ```
 
 Codex may ask you to review and trust the hook commands the first time it sees them. Start Codex with `c` so the hook events share the same `AGENT_ID` as the tmux monitor entry.
