@@ -3,6 +3,16 @@ set -euo pipefail
 
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+bold_window_index_format() {
+  local format="$1"
+  local index_command="#($CURRENT_DIR/scripts/window-index.sh '#I')"
+  if [[ "$format" == *"#I"* && "$format" != *"scripts/window-index.sh"* ]]; then
+    printf '%s' "${format//#I/$index_command}"
+  else
+    printf '%s' "$format"
+  fi
+}
+
 tmux set-option -gq @agent_monitor_plugin_dir "$CURRENT_DIR"
 
 if [[ -z "$(tmux show-option -gqv @agent_monitor_home)" ]]; then
@@ -56,6 +66,8 @@ if [[ "$(tmux show-option -gqv @agent_monitor_window_icons)" != "off" ]]; then
 
   window_status_format="$(tmux show-option -gqv @agent_monitor_original_window_status_format)"
   window_status_current_format="$(tmux show-option -gqv @agent_monitor_original_window_status_current_format)"
+  window_status_format="$(bold_window_index_format "$window_status_format")"
+  window_status_current_format="$(bold_window_index_format "$window_status_current_format")"
   window_status_icon="#($CURRENT_DIR/scripts/window-status.sh '#{window_id}' '#{window_name}')"
 
   tmux set-option -gq window-status-format "$window_status_format $window_status_icon"

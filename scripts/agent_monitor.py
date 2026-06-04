@@ -398,6 +398,10 @@ def infer_codex_activity(agent: dict[str, Any]) -> str | None:
 
     attention_markers = (
         "press enter to continue",
+        "press enter to confirm",
+        "esc to cancel",
+        "would you like to make the following edits",
+        "would you like to proceed",
         "approval requested",
         "requires approval",
         "permission requested",
