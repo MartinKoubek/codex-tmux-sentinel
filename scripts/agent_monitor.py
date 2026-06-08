@@ -11,6 +11,7 @@ import subprocess
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -46,6 +47,8 @@ STATUS_COLORS = {
     "STALLED": "magenta",
     "NONE": "colour244",
 }
+
+INTERACTIVE_SHELL_COMMANDS = {"bash", "fish", "sh", "zsh"}
 
 
 def now_utc() -> datetime:
@@ -307,6 +310,7 @@ def codex_hook(args: argparse.Namespace) -> None:
         agents[agent_id] = existing
 
 
+@lru_cache(maxsize=128)
 def capture_pane_text(pane: str) -> str:
     if not pane or not shutil.which("tmux"):
         return ""
@@ -320,6 +324,7 @@ def capture_pane_text(pane: str) -> str:
     return result.stdout if result.returncode == 0 else ""
 
 
+@lru_cache(maxsize=128)
 def pane_current_path(pane: str) -> Path | None:
     if not pane or not shutil.which("tmux"):
         return None
@@ -332,6 +337,79 @@ def pane_current_path(pane: str) -> Path | None:
     )
     current_path = result.stdout.strip() if result.returncode == 0 else ""
     return Path(current_path).expanduser() if current_path else None
+
+
+@lru_cache(maxsize=128)
+def pane_tmux_metadata(pane: str) -> tuple[str, str, str, str] | None:
+    if not pane or not shutil.which("tmux"):
+        return None
+    result = subprocess.run(
+        ["tmux", "display-message", "-p", "-t", pane, "#{window_id}\t#{window_name}\t#{pane_current_command}\t#{pane_pid}"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    parts = result.stdout.rstrip("\n").split("\t", 3)
+    if len(parts) != 4:
+        return None
+    return (parts[0], parts[1], parts[2], parts[3])
+
+
+@lru_cache(maxsize=1)
+def process_children() -> dict[int, list[tuple[int, str]]] | None:
+    result = subprocess.run(
+        ["ps", "-axo", "pid=,ppid=,command="],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+
+    children: dict[int, list[tuple[int, str]]] = {}
+    for line in result.stdout.splitlines():
+        parts = line.strip().split(None, 2)
+        if len(parts) < 3:
+            continue
+        try:
+            pid = int(parts[0])
+            ppid = int(parts[1])
+        except ValueError:
+            continue
+        children.setdefault(ppid, []).append((pid, parts[2]))
+    return children
+
+
+def command_mentions_codex(command: str) -> bool:
+    lowered = command.lower()
+    return "codex" in lowered
+
+
+def pane_process_has_codex(pane_pid: str) -> bool | None:
+    try:
+        root_pid = int(pane_pid)
+    except ValueError:
+        return None
+
+    children = process_children()
+    if children is None:
+        return None
+
+    stack = list(children.get(root_pid, []))
+    seen: set[int] = set()
+    while stack:
+        pid, command = stack.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        if command_mentions_codex(command):
+            return True
+        stack.extend(children.get(pid, []))
+    return False
 
 
 def idea_file_count_for_pane(pane: str) -> int:
@@ -440,6 +518,21 @@ def infer_codex_activity(agent: dict[str, Any]) -> str | None:
     return normalize_activity(str(agent.get("activity"))) if agent.get("activity") else None
 
 
+def pane_text_looks_like_codex(text: str) -> bool:
+    lowered = text.lower()
+    markers = (
+        "codex",
+        "gpt-",
+        "token usage:",
+        "esc to interrupt",
+        "approval requested",
+        "permission requested",
+        "press enter to confirm",
+        "›",
+    )
+    return any(marker in lowered for marker in markers)
+
+
 def display_status(agent: dict[str, Any]) -> str:
     raw_status = str(agent.get("status") or "STOPPED").upper()
     if raw_status in {"FAILED", "STALLED"}:
@@ -498,16 +591,63 @@ def status_icon(status: str, count: int | None = None) -> str:
     return f"#[fg={color}]⬤#[default]{suffix}"
 
 
+def agent_matches_window(agent: dict[str, Any], window_id: str, window_name: str) -> bool:
+    agent_pane = str(agent.get("pane") or "").strip()
+    if agent_pane:
+        metadata = pane_tmux_metadata(agent_pane)
+        if metadata is None:
+            return False
+
+        pane_window_id, pane_window_name, pane_command, pane_pid = metadata
+        if window_id:
+            if pane_window_id != window_id:
+                return False
+        elif window_name and pane_window_name != window_name:
+            return False
+
+        if str(agent.get("task") or "").lower().find("codex") >= 0:
+            process_has_codex = pane_process_has_codex(pane_pid)
+            if process_has_codex is False:
+                return False
+            if process_has_codex is None:
+                pane_text = capture_pane_text(agent_pane)
+                if pane_command in INTERACTIVE_SHELL_COMMANDS and not pane_text_looks_like_codex(pane_text):
+                    return False
+        return True
+
+    agent_window_id = str(agent.get("window_id") or "").strip()
+    agent_window = str(agent.get("window") or "").strip()
+    return bool((window_id and agent_window_id == window_id) or (not window_id and window_name and agent_window == window_name))
+
+
+def is_newer_agent(candidate: dict[str, Any], current: dict[str, Any]) -> bool:
+    candidate_time = parse_time(candidate.get("last_update"))
+    current_time = parse_time(current.get("last_update"))
+    if candidate_time and current_time and candidate_time != current_time:
+        return candidate_time > current_time
+    if candidate_time and not current_time:
+        return True
+    if current_time and not candidate_time:
+        return False
+    candidate_priority = STATUS_PRIORITY.get(str(candidate.get("display_status", "NONE")).upper(), 0)
+    current_priority = STATUS_PRIORITY.get(str(current.get("display_status", "NONE")).upper(), 0)
+    return candidate_priority > current_priority
+
+
 def window_status(args: argparse.Namespace) -> None:
-    icons = []
+    agents_by_pane: dict[str, dict[str, Any]] = {}
     for agent in load_agents():
-        agent_window_id = str(agent.get("window_id") or "").strip()
-        agent_window = str(agent.get("window") or "").strip()
-        if (args.window_id and agent_window_id == args.window_id) or (
-            not agent_window_id and args.window and agent_window == args.window
-        ):
-            count = idea_file_count_for_pane(str(agent.get("pane", "")))
-            icons.append(status_icon(str(agent.get("display_status", "NONE")), count))
+        if not agent_matches_window(agent, args.window_id, args.window):
+            continue
+        pane_key = str(agent.get("pane") or agent.get("agent_id") or "")
+        existing = agents_by_pane.get(pane_key)
+        if existing is None or is_newer_agent(agent, existing):
+            agents_by_pane[pane_key] = agent
+
+    icons = []
+    for agent in agents_by_pane.values():
+        count = idea_file_count_for_pane(str(agent.get("pane", "")))
+        icons.append(status_icon(str(agent.get("display_status", "NONE")), count))
     print(" ".join(icons))
 
 
